@@ -9,12 +9,12 @@
         body { font-family: sans-serif; text-align: center; padding-top: 50px; background: #f0f0f0; }
         button { padding: 15px 30px; font-size: 18px; cursor: pointer; border-radius: 10px; border: none; background: #007bff; color: white; margin: 10px; }
         input { padding: 10px; font-size: 16px; width: 80%; max-width: 300px; border-radius: 5px; border: 1px solid #ccc; }
-        #status { margin-top: 20px; color: #666; }
+        #status { margin-top: 20px; color: #666; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <h2>超音波通信テスト</h2>
+    <h2>超音波通信テスト（修正版）</h2>
     
     <input type="text" id="inputText" value="Hello!">
     <br>
@@ -22,35 +22,36 @@
     <br>
     <button onclick="initAudio()" id="initBtn">マイクを起動（受信待機）</button>
 
-    <div id="status">ステータス: 待機中</div>
+    <div id="status">ステータス: ライブラリ読み込み中...</div>
     <div id="received">受信した文字: <strong id="output">---</strong></div>
 
     <script>
         let factory;
         let ggwave;
 
-        // 1. 準備：ggwaveを初期化する
+        // ライブラリを読み込む
         ggwave_factory().then(f => {
             factory = f;
-            ggwave = factory.create({
-                payloadLength: 16,
-                protocolId: 0
-            });
-            document.getElementById('status').innerText = '準備OK！';
+            document.getElementById('status').innerText = '準備OK！ボタンを押してね';
         });
 
-        // 2. 音を出す（送信）
-        function sendText() {
+        async function sendText() {
+            if (!factory) return alert('まだ準備中です');
+
+            // 送信するたびにインスタンスを作り直す（確実性を上げるため）
+            ggwave = factory.create({
+                payloadLength: 16,
+                protocolId: 0 // 0なら聞こえる音、1なら超音波
+            });
+
             const text = document.getElementById('inputText').value;
             const waveform = factory.encode(ggwave, text);
             
-            // ★ここが大事：ボタンを押した瞬間にAudioContextを作る
-            const context = new (window.AudioContext || window.webkitAudioContext)();
+            // AudioContextを作成
+            const context = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
             
-            // ★追加：iOSや最新Chrome向けに「再開」を命令する
-            if (context.state === 'suspended') {
-                context.resume();
-            }
+            // 強制再開のおまじない
+            await context.resume();
 
             const buffer = context.createBuffer(1, waveform.length, 48000);
             buffer.getChannelData(0).set(waveform);
@@ -58,31 +59,43 @@
             const source = context.createBufferSource();
             source.buffer = buffer;
             source.connect(context.destination);
-            source.start();
-            document.getElementById('status').innerText = '送信中...';
+            
+            // 再生が終わったらリソースを解放
+            source.onended = () => context.close();
+            
+            source.start(0);
+            document.getElementById('status').innerText = '送信しました！';
         }
 
-        // 3. マイクを起動して聴く（受信）
         async function initAudio() {
             document.getElementById('initBtn').style.display = 'none';
-            document.getElementById('status').innerText = 'マイク聴取中...';
+            document.getElementById('status').innerText = 'マイク許可を待っています...';
             
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const context = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
-            const source = context.createMediaStreamSource(stream);
-            const processor = context.createScriptProcessor(1024, 1, 1);
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const context = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+                
+                // 受信用にもggwaveインスタンスを作成
+                const recvGgwave = factory.create({ payloadLength: 16, protocolId: 0 });
 
-            source.connect(processor);
-            processor.connect(context.destination);
+                const source = context.createMediaStreamSource(stream);
+                const processor = context.createScriptProcessor(1024, 1, 1);
 
-            processor.onaudioprocess = (e) => {
-                const inputData = e.inputBuffer.getChannelData(0);
-                const result = factory.decode(ggwave, inputData);
-                if (result) {
-                    document.getElementById('output').innerText = result;
-                    document.getElementById('status').innerText = '受信成功！';
-                }
-            };
+                source.connect(processor);
+                processor.connect(context.destination);
+
+                processor.onaudioprocess = (e) => {
+                    const inputData = e.inputBuffer.getChannelData(0);
+                    const result = factory.decode(recvGgwave, inputData);
+                    if (result) {
+                        document.getElementById('output').innerText = result;
+                        document.getElementById('status').innerText = '受信成功！';
+                    }
+                };
+                document.getElementById('status').innerText = '受信待機中...音を近づけてね';
+            } catch (err) {
+                document.getElementById('status').innerText = 'マイク失敗: ' + err;
+            }
         }
     </script>
 </body>

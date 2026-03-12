@@ -3,35 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UltraSonic Wave</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ggwave/0.2.0/ggwave.js"></script>
+    <title>UltraSonic Wave (Final)</title>
     <style>
         :root { --primary: #00d4ff; --bg: #0f172a; --card: #1e293b; --text: #f8fafc; }
         body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); display: flex; flex-direction: column; align-items: center; min-height: 100vh; margin: 0; padding-top: 40px; }
-        .card { background: var(--card); padding: 2rem; border-radius: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); width: 90%; max-width: 400px; border: 1px solid rgba(255,255,255,0.1); }
+        .card { background: var(--card); padding: 2rem; border-radius: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); width: 90%; max-width: 400px; border: 1px solid rgba(255,255,255,0.1); text-align: center; }
         h2 { font-size: 1.5rem; margin-bottom: 1.5rem; background: linear-gradient(90deg, #00d4ff, #00ecc3); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        #status { font-size: 0.8rem; padding: 8px 16px; border-radius: 100px; background: rgba(255,255,255,0.05); margin-bottom: 20px; display: inline-block; }
-        input { background: #334155; border: none; padding: 12px 16px; border-radius: 12px; color: white; width: 100%; box-sizing: border-box; margin-bottom: 1rem; font-size: 1rem; outline: none; border: 1px solid transparent; transition: 0.3s; }
-        input:focus { border-color: var(--primary); box-shadow: 0 0 10px rgba(0,212,255,0.3); }
+        #status { font-size: 0.8rem; padding: 8px 16px; border-radius: 100px; background: rgba(255,255,255,0.05); margin-bottom: 20px; display: inline-block; color: #94a3b8; }
+        input { background: #334155; border: none; padding: 12px 16px; border-radius: 12px; color: white; width: 100%; box-sizing: border-box; margin-bottom: 1rem; font-size: 1rem; outline: none; }
         button { width: 100%; padding: 14px; border-radius: 12px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; margin-bottom: 10px; font-size: 1rem; }
         .btn-send { background: linear-gradient(135deg, #00d4ff, #0056b3); color: white; }
         .btn-recv { background: #10b981; color: white; }
-        button:active { transform: scale(0.96); opacity: 0.8; }
         .result-box { margin-top: 1.5rem; padding: 1rem; background: rgba(0,0,0,0.2); border-radius: 12px; border: 1px dashed rgba(255,255,255,0.2); }
         #output { font-size: 1.8rem; color: var(--primary); display: block; margin-top: 5px; min-height: 2.2rem; }
-        .log-box { width: 90%; max-width: 400px; margin-top: 20px; font-size: 0.7rem; color: #94a3b8; text-align: left; }
     </style>
 </head>
 <body>
 
     <div class="card">
         <h2>UltraSonic Wave</h2>
-        <div id="status">⏳ 読み込み中...</div>
+        <div id="status">⏳ エンジン起動中...</div>
         
         <input type="text" id="inputText" value="HELLO!">
         
-        <button class="btn-send" onclick="sendText()">① 送信（ピーッ！）</button>
-        <button class="btn-recv" id="initBtn" onclick="initAudio()">② 受信待機を開始</button>
+        <button class="btn-send" onclick="sendText()">① 送信（音を出す）</button>
+        <button class="btn-recv" onclick="initAudio()">② 受信待機を開始</button>
         
         <div class="result-box">
             <small>RECEIVED DATA</small>
@@ -39,71 +35,63 @@
         </div>
     </div>
 
-    <div class="log-box" id="log">ログ: 準備中...</div>
-
     <script>
-        const log = (m) => { document.getElementById('log').innerText = "ログ: " + m; };
-        let factory;
+        // 外部から読み込めないなら、読み込むための「種」を直接実行
+        (function() {
+            var s = document.createElement('script');
+            // 一番強固なGoogleのライブラリ配信URLを使ってみます
+            s.src = "https://cdn.jsdelivr.net/npm/ggwave@0.2.0/dist/ggwave.js";
+            s.onerror = function() {
+                // これもダメなら、画面に緊急メッセージ
+                document.getElementById('status').innerText = "❌ ネット制限により起動不能";
+                document.getElementById('status').style.color = "#ff4444";
+            };
+            document.head.appendChild(s);
+        })();
 
-        // ライブラリ初期化
-        window.onload = () => {
-            if (typeof ggwave_factory === 'undefined') {
-                document.getElementById('status').innerText = '❌ 読込失敗 (Braveのシールドを確認)';
-                log('ggwave.jsが見つかりません');
-            } else {
+        let factory;
+        let checkTimer = setInterval(() => {
+            if (typeof ggwave_factory !== 'undefined') {
+                clearInterval(checkTimer);
                 ggwave_factory().then(f => {
                     factory = f;
                     document.getElementById('status').innerText = '✅ READY';
                     document.getElementById('status').style.color = '#10b981';
-                    log('準備が整いました');
                 });
             }
-        };
+        }, 500);
 
         async function sendText() {
-            if (!factory) return alert('準備中...');
+            if (!factory) return alert('まだ準備中です');
             const context = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
             await context.resume();
-            
-            const ggwave = factory.create({ payloadLength: 16, protocolId: 0 }); // 0は可聴音
+            const ggwave = factory.create({ payloadLength: 16, protocolId: 0 });
             const waveform = factory.encode(ggwave, document.getElementById('inputText').value);
-            
             const buffer = context.createBuffer(1, waveform.length, 48000);
             buffer.getChannelData(0).set(waveform);
-            
             const source = context.createBufferSource();
             source.buffer = buffer;
             source.connect(context.destination);
             source.start(0);
-            log('送信完了！');
         }
 
         async function initAudio() {
-            log('マイクを探しています...');
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 const context = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
                 await context.resume();
-                
                 const recvGgwave = factory.create({ payloadLength: 16, protocolId: 0 });
                 const source = context.createMediaStreamSource(stream);
                 const processor = context.createScriptProcessor(1024, 1, 1);
-
                 source.connect(processor);
                 processor.connect(context.destination);
-
                 processor.onaudioprocess = (e) => {
                     const result = factory.decode(recvGgwave, e.inputBuffer.getChannelData(0));
-                    if (result) {
-                        document.getElementById('output').innerText = result;
-                        log('受信成功: ' + result);
-                    }
+                    if (result) document.getElementById('output').innerText = result;
                 };
                 document.getElementById('status').innerText = '👂 LISTENING...';
-                log('受信モードに切り替わりました');
             } catch (err) {
-                alert('マイクを許可してね！');
-                log('エラー: ' + err);
+                alert('マイクを許可してください');
             }
         }
     </script>

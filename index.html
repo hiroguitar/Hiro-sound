@@ -34,7 +34,8 @@
             factory = f;
             ggwave = factory.create({
                 payloadLength: 16,
-                protocolId: 1 // [1] は超音波プロトコル
+                protocolId: 0
+              // [1] は超音波プロトコル
             });
             document.getElementById('status').innerText = '準備OK！';
         });

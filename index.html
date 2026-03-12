@@ -3,81 +3,103 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>超音波テスト</title>
-    <script src="https://ggerganov.github.io/ggwave.js/ggwave.js"></script>
+    <title>超音波テスト・最終版</title>
+    <script src="https://cdn.jsdelivr.net/npm/ggwave/dist/ggwave.js"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; padding-top: 50px; background: #f0f0f0; }
-        button { padding: 15px 30px; font-size: 18px; cursor: pointer; border-radius: 10px; border: none; background: #007bff; color: white; margin: 10px; }
-        input { padding: 10px; font-size: 16px; width: 80%; max-width: 300px; border-radius: 5px; border: 1px solid #ccc; }
-        #status { margin-top: 20px; color: #666; font-weight: bold; }
+        body { font-family: sans-serif; text-align: center; padding-top: 30px; background: #eef2f3; color: #333; }
+        .card { background: white; margin: 20px auto; padding: 20px; border-radius: 15px; width: 90%; max-width: 400px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        button { padding: 15px 25px; font-size: 16px; cursor: pointer; border-radius: 8px; border: none; background: #007bff; color: white; margin: 10px; transition: 0.3s; width: 100%; }
+        button:active { transform: scale(0.98); background: #0056b3; }
+        input { padding: 12px; font-size: 16px; width: 100%; box-sizing: border-box; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 10px; }
+        #status { margin: 15px; padding: 10px; font-size: 14px; background: #fff3cd; border-radius: 5px; }
+        .log { font-size: 12px; color: #666; text-align: left; background: #eee; padding: 10px; border-radius: 5px; overflow-y: scroll; height: 100px; }
     </style>
 </head>
 <body>
 
-    <h2>超音波通信テスト（修正版）</h2>
-    
-    <input type="text" id="inputText" value="Hello!">
-    <br>
-    <button onclick="sendText()">音を出す（送信）</button>
-    <br>
-    <button onclick="initAudio()" id="initBtn">マイクを起動（受信待機）</button>
+    <div class="card">
+        <h2>超音波通信テスト</h2>
+        <div id="status">⏳ ライブラリを読み込み中...</div>
+        
+        <input type="text" id="inputText" value="Hello!">
+        <button onclick="sendText()">① 音を出す（送信）</button>
+        <button id="initBtn" onclick="initAudio()" style="background: #28a745;">② 受信モード開始</button>
+        
+        <hr>
+        <div>受信文字: <strong id="output" style="font-size: 24px; color: #dc3545;">---</strong></div>
+    </div>
 
-    <div id="status">ステータス: ライブラリ読み込み中...</div>
-    <div id="received">受信した文字: <strong id="output">---</strong></div>
+    <div class="card">
+        <p>デバッグログ（エラー確認用）</p>
+        <div id="log" class="log"></div>
+    </div>
 
     <script>
-        let factory;
-        let ggwave;
+        const log = (msg) => {
+            const el = document.getElementById('log');
+            el.innerHTML += `> ${msg}<br>`;
+            el.scrollTop = el.scrollHeight;
+        };
 
-        // ライブラリを読み込む
-        ggwave_factory().then(f => {
-            factory = f;
-            document.getElementById('status').innerText = '準備OK！ボタンを押してね';
-        });
+        let factory;
+
+        // ライブラリの初期化
+        window.onload = () => {
+            log('ページを読み込みました');
+            if (typeof ggwave_factory === 'undefined') {
+                log('エラー: ggwaveが読み込めていません。ネット接続を確認してください。');
+                document.getElementById('status').innerText = '❌ ライブラリ読込失敗';
+                return;
+            }
+
+            ggwave_factory().then(f => {
+                factory = f;
+                log('ggwave factoryの準備完了');
+                document.getElementById('status').innerText = '✅ 準備OK！ボタンを押してね';
+                document.getElementById('status').style.background = '#d4edda';
+            }).catch(err => {
+                log('初期化エラー: ' + err);
+            });
+        };
 
         async function sendText() {
-            if (!factory) return alert('まだ準備中です');
+            if (!factory) return log('エラー: まだ準備ができていません');
+            log('送信処理を開始...');
 
-            // 送信するたびにインスタンスを作り直す（確実性を上げるため）
-            ggwave = factory.create({
-                payloadLength: 16,
-                protocolId: 0 // 0なら聞こえる音、1なら超音波
-            });
+            try {
+                const context = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+                await context.resume();
+                log('AudioContextを起動: ' + context.state);
 
-            const text = document.getElementById('inputText').value;
-            const waveform = factory.encode(ggwave, text);
-            
-            // AudioContextを作成
-            const context = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
-            
-            // 強制再開のおまじない
-            await context.resume();
-
-            const buffer = context.createBuffer(1, waveform.length, 48000);
-            buffer.getChannelData(0).set(waveform);
-            
-            const source = context.createBufferSource();
-            source.buffer = buffer;
-            source.connect(context.destination);
-            
-            // 再生が終わったらリソースを解放
-            source.onended = () => context.close();
-            
-            source.start(0);
-            document.getElementById('status').innerText = '送信しました！';
+                const ggwave = factory.create({ payloadLength: 16, protocolId: 0 });
+                const text = document.getElementById('inputText').value;
+                const waveform = factory.encode(ggwave, text);
+                
+                const buffer = context.createBuffer(1, waveform.length, 48000);
+                buffer.getChannelData(0).set(waveform);
+                
+                const source = context.createBufferSource();
+                source.buffer = buffer;
+                source.connect(context.destination);
+                source.onended = () => {
+                    context.close();
+                    log('再生終了・リソース解放');
+                };
+                source.start(0);
+                log('音を出しました！');
+            } catch (err) {
+                log('送信エラー: ' + err);
+            }
         }
 
         async function initAudio() {
-            document.getElementById('initBtn').style.display = 'none';
-            document.getElementById('status').innerText = 'マイク許可を待っています...';
-            
+            log('マイク起動を試みます...');
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 const context = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+                await context.resume();
                 
-                // 受信用にもggwaveインスタンスを作成
                 const recvGgwave = factory.create({ payloadLength: 16, protocolId: 0 });
-
                 const source = context.createMediaStreamSource(stream);
                 const processor = context.createScriptProcessor(1024, 1, 1);
 
@@ -89,12 +111,14 @@
                     const result = factory.decode(recvGgwave, inputData);
                     if (result) {
                         document.getElementById('output').innerText = result;
-                        document.getElementById('status').innerText = '受信成功！';
+                        log('★受信成功: ' + result);
                     }
                 };
-                document.getElementById('status').innerText = '受信待機中...音を近づけてね';
+                document.getElementById('status').innerText = '👂 受信待機中...';
+                log('受信モード起動成功');
             } catch (err) {
-                document.getElementById('status').innerText = 'マイク失敗: ' + err;
+                log('マイクエラー: ' + err);
+                alert('マイクを許可してください');
             }
         }
     </script>

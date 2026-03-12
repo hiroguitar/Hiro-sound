@@ -44,7 +44,14 @@
             const text = document.getElementById('inputText').value;
             const waveform = factory.encode(ggwave, text);
             
+            // ★ここが大事：ボタンを押した瞬間にAudioContextを作る
             const context = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // ★追加：iOSや最新Chrome向けに「再開」を命令する
+            if (context.state === 'suspended') {
+                context.resume();
+            }
+
             const buffer = context.createBuffer(1, waveform.length, 48000);
             buffer.getChannelData(0).set(waveform);
             

@@ -1,91 +1,72 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Debug: UltraSonic Wave</title>
+    <meta charset="UTF-8"><title>My Sonic Engine</title>
     <style>
-        :root { --primary: #00d4ff; --bg: #0f172a; --card: #1e293b; --text: #f8fafc; }
-        body { font-family: sans-serif; background: var(--bg); color: var(--text); padding: 20px; display: flex; flex-direction: column; align-items: center; }
-        .card { background: var(--card); padding: 20px; border-radius: 20px; width: 100%; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); text-align: center; }
-        button { width: 100%; padding: 12px; border-radius: 10px; border: none; font-weight: bold; cursor: pointer; margin-bottom: 10px; background: var(--primary); color: #0f172a; }
-        .log-area { width: 100%; max-width: 400px; margin-top: 20px; background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 10px; border-radius: 10px; height: 150px; overflow-y: scroll; border: 1px solid #333; }
-        .error { color: #ff4444; }
+        body { background: #0f172a; color: #fff; font-family: sans-serif; text-align: center; padding: 40px; }
+        .btn { padding: 20px; width: 200px; border-radius: 10px; border: none; font-weight: bold; cursor: pointer; margin: 10px; }
+        #indicator { width: 50px; height: 50px; border-radius: 50%; background: #333; margin: 20px auto; transition: 0.2s; }
     </style>
 </head>
 <body>
+    <h2>自作エンジン：超音波センサー</h2>
+    <div id="status">Ready</div>
+    <div id="indicator"></div>
 
-    <div class="card">
-        <h2>追跡モード</h2>
-        <div id="status" style="margin-bottom:15px;">🔍 通信を監視中...</div>
-        <button onclick="testSound()">1. テスト音（1kHz）を鳴らす</button>
-        <button onclick="sendUltra()">2. 超音波送信（ggwave）</button>
-        <button onclick="location.reload()" style="background:#666; color:white;">ページ再読み込み</button>
-    </div>
-
-    <div class="log-area" id="debugLog">--- 追跡ログ ---<br></div>
+    <button class="btn" style="background: #00d4ff;" onclick="sendSignal()">① 信号送信 (18kHz)</button>
+    <button class="btn" style="background: #10b981;" onclick="startListening()">② 受信スタート</button>
 
     <script>
-        // 画面にログを出す魔法
-        const debugLog = document.getElementById('debugLog');
-        function trace(msg, isError = false) {
-            const time = new Date().toLocaleTimeString();
-            debugLog.innerHTML += `<span class="${isError ? 'error' : ''}">[${time}] ${msg}</span><br>`;
-            debugLog.scrollTop = debugLog.scrollHeight;
+        const FREQ = 18000; // 超音波の周波数
+        let audioCtx;
+
+        // ① 送信機能
+        function sendSignal() {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.frequency.value = FREQ;
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            osc.start();
+            // 0.5秒間だけ鳴らす
+            gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5);
+            osc.stop(audioCtx.currentTime + 0.5);
         }
 
-        trace("ページを読み込みました");
+        // ② 受信機能
+        async function startListening() {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const source = audioCtx.createMediaStreamSource(stream);
+            const analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 2048;
+            source.connect(analyser);
 
-        // ライブラリ読み込み追跡
-        const script = document.createElement('script');
-        script.src = "https://cdnjs.cloudflare.com/ajax/libs/ggwave/0.2.0/ggwave.js";
-        trace(`ライブラリを読込中: ${script.src}`);
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            
+            document.getElementById('status').innerText = "👂 監視中...";
 
-        script.onload = () => {
-            trace("✅ ggwave.js の読込に成功！");
-            document.getElementById('status').innerText = "✅ エンジン準備OK";
-        };
+            function check() {
+                analyser.getByteFrequencyData(dataArray);
+                // 周波数からインデックスを計算
+                const index = Math.round(FREQ / (audioCtx.sampleRate / analyser.fftSize));
+                const volume = dataArray[index];
 
-        script.onerror = () => {
-            trace("❌ ggwave.js の読込に失敗！(ブロックされました)", true);
-            document.getElementById('status').innerText = "❌ 通信エラー";
-        };
-
-        document.head.appendChild(script);
-
-        // 1. スピーカー単体テスト
-        async function testSound() {
-            trace("テスト音の再生を試みます...");
-            try {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                if (ctx.state === 'suspended') {
-                    trace("⚠️ AudioContextが待機中。画面をタップしてください。");
-                    await ctx.resume();
+                if (volume > 100) { // 一定以上の音量を検知したら
+                    document.getElementById('indicator').style.background = "#00ff00";
+                    document.getElementById('status').innerText = "✨ 受信成功！";
+                    setTimeout(() => {
+                        document.getElementById('indicator').style.background = "#333";
+                        document.getElementById('status').innerText = "👂 監視中...";
+                    }, 500);
                 }
-                const osc = ctx.createOscillator();
-                osc.connect(ctx.destination);
-                osc.frequency.value = 1000;
-                osc.start();
-                osc.stop(ctx.currentTime + 0.5);
-                trace("✅ テスト音（1kHz）再生命令を出しました。");
-            } catch (e) {
-                trace(`❌ 音再生エラー: ${e.message}`, true);
+                requestAnimationFrame(check);
             }
+            check();
         }
-
-        // 2. ggwave送信テスト
-        async function sendUltra() {
-            if (typeof ggwave_factory === 'undefined') {
-                trace("❌ エラー: ggwaveが読み込まれていません", true);
-                return;
-            }
-            trace("ggwave送信準備中...");
-            try {
-                const factory = await ggwave_factory();
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                const gg = factory.create({ payloadLength: 8, protocolId: 0 });
-                const wave = factory.encode(gg, "HI!");
-                const buf = ctx.createBuffer(1, wave.length, 48000);
-                buf.getChannelData(0).set(wave);
-                const src = ctx.createBufferSource();
-                src.
+    </script>
+</body>
+</html>

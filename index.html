@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>超音波テスト</title>
+    <script src="https://ggerganov.github.io/ggwave.js/ggwave.js"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding-top: 50px; background: #f0f0f0; }
+        button { padding: 15px 30px; font-size: 18px; cursor: pointer; border-radius: 10px; border: none; background: #007bff; color: white; margin: 10px; }
+        input { padding: 10px; font-size: 16px; width: 80%; max-width: 300px; border-radius: 5px; border: 1px solid #ccc; }
+        #status { margin-top: 20px; color: #666; }
+    </style>
+</head>
+<body>
+
+    <h2>超音波通信テスト</h2>
+    
+    <input type="text" id="inputText" value="Hello!">
+    <br>
+    <button onclick="sendText()">音を出す（送信）</button>
+    <br>
+    <button onclick="initAudio()" id="initBtn">マイクを起動（受信待機）</button>
+
+    <div id="status">ステータス: 待機中</div>
+    <div id="received">受信した文字: <strong id="output">---</strong></div>
+
+    <script>
+        let factory;
+        let ggwave;
+
+        // 1. 準備：ggwaveを初期化する
+        ggwave_factory().then(f => {
+            factory = f;
+            ggwave = factory.create({
+                payloadLength: 16,
+                protocolId: 1 // [1] は超音波プロトコル
+            });
+            document.getElementById('status').innerText = '準備OK！';
+        });
+
+        // 2. 音を出す（送信）
+        function sendText() {
+            const text = document.getElementById('inputText').value;
+            const waveform = factory.encode(ggwave, text);
+            
+            const context = new (window.AudioContext || window.webkitAudioContext)();
+            const buffer = context.createBuffer(1, waveform.length, 48000);
+            buffer.getChannelData(0).set(waveform);
+            
+            const source = context.createBufferSource();
+            source.buffer = buffer;
+            source.connect(context.destination);
+            source.start();
+            document.getElementById('status').innerText = '送信中...';
+        }
+
+        // 3. マイクを起動して聴く（受信）
+        async function initAudio() {
+            document.getElementById('initBtn').style.display = 'none';
+            document.getElementById('status').innerText = 'マイク聴取中...';
+            
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const context = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+            const source = context.createMediaStreamSource(stream);
+            const processor = context.createScriptProcessor(1024, 1, 1);
+
+            source.connect(processor);
+            processor.connect(context.destination);
+
+            processor.onaudioprocess = (e) => {
+                const inputData = e.inputBuffer.getChannelData(0);
+                const result = factory.decode(ggwave, inputData);
+                if (result) {
+                    document.getElementById('output').innerText = result;
+                    document.getElementById('status').innerText = '受信成功！';
+                }
+            };
+        }
+    </script>
+</body>
+</html>
